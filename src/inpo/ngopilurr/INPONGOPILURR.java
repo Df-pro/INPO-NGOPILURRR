@@ -17,7 +17,7 @@ public class INPONGOPILURR {
         // TODO code application logic here
         
         
-        Scanner input = new Scanner(System.in);
+            Scanner input = new Scanner(System.in);
 
         System.out.print("Masukkan nama: ");
         String nama = input.nextLine();
