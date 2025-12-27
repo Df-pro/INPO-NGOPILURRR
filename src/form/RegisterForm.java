@@ -6,131 +6,315 @@ package form;
 import DAO.UserDAO;
 import Model.User;
 import javax.swing.*;
+import java.awt.event.*;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /**
  *
  * @author dwife
  */
 public class RegisterForm extends javax.swing.JFrame {
-
-    /**
-     * Creates new form RegisterForm
-     */
-    private String selectedRole = "user"; // Variable untuk simpan role
-
-    /**
-     * Creates new form RegisterForm
-     */
+    private UserDAO userDAO;
+    
     public RegisterForm() {
         initComponents();
         setLocationRelativeTo(null);
+        setTitle("Registration Form");
+        
+        // Initialize
+        userDAO = new UserDAO();
+        
+        // Set default role to User
+        selectedRole_User.setSelected(true);
+        
+        // Hide Admin Code field awal (karena default User)
+        jLabel7.setVisible(false);
+        txtAdminCode.setVisible(false);
+        
+        // Setup keyboard shortcuts
+        setupKeyboardShortcuts();
     }
-
+    
+    private void setupKeyboardShortcuts() {
+        // Enter key in confirm field triggers register
+        txtConfirm.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "register");
+        txtConfirm.getActionMap().put("register", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                registerUser();
+            }
+        });
+        
+        // Tab navigation
+        txtUsername.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "next1");
+        txtUsername.getActionMap().put("next1", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                txtEmail.requestFocus();
+            }
+        });
+        
+        txtEmail.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "next2");
+        txtEmail.getActionMap().put("next2", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                txtPassword.requestFocus();
+            }
+        });
+        
+        txtPassword.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "next3");
+        txtPassword.getActionMap().put("next3", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                txtConfirm.requestFocus();
+            }
+        });
+        
+        // Enter di admin code juga trigger register
+        txtAdminCode.getInputMap().put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "registerAdmin");
+        txtAdminCode.getActionMap().put("registerAdmin", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                registerUser();
+            }
+        });
+    }
+    
+    private void toggleAdminCodeField(boolean show) {
+        jLabel7.setVisible(show);
+        txtAdminCode.setVisible(show);
+        
+        if (show) {
+            txtAdminCode.requestFocus();
+        } else {
+            txtAdminCode.setText(""); // Clear field jika disembunyikan
+        }
+        
+        // Adjust window size
+        pack();
+        setLocationRelativeTo(null); // Recenter
+    }
+    
     private void registerUser() {
         String username = txtUsername.getText().trim();
         String email = txtEmail.getText().trim();
         String password = new String(txtPassword.getPassword());
-        String confirmPassword = new String(txtConfirm.getPassword());
-
-        if (username.isEmpty() || email.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                "All fields are required!",
-                "Validation Error",
-                JOptionPane.ERROR_MESSAGE);
+        String confirm = new String(txtConfirm.getPassword());
+        String role = selectedRole_User.isSelected() ? "user" : "admin";
+        String adminCode = txtAdminCode.getText().trim();
+        
+        // Validation
+        if (username.isEmpty()) {
+            showError("Please enter username!");
+            txtUsername.requestFocus();
             return;
         }
         
-        if (!password.equals(confirmPassword)) {
-            JOptionPane.showMessageDialog(this,
-                "Password and confirmation do not match!",
-                "Validation Error",
-                JOptionPane.ERROR_MESSAGE);
-            txtPassword.setText("");
-            txtConfirm.setText("");
+        if (!isValidUsername(username)) {
+            showError("Username must be 3-20 characters and contain only letters, numbers, and underscore!");
+            txtUsername.requestFocus();
+            return;
+        }
+        
+        if (email.isEmpty()) {
+            showError("Please enter email!");
+            txtEmail.requestFocus();
+            return;
+        }
+        
+        if (!isValidEmail(email)) {
+            showError("Invalid email format!");
+            txtEmail.requestFocus();
+            return;
+        }
+        
+        if (password.isEmpty()) {
+            showError("Please enter password!");
             txtPassword.requestFocus();
             return;
         }
         
         if (password.length() < 6) {
-            JOptionPane.showMessageDialog(this,
-                "Password must be at least 6 characters!",
-                "Validation Error",
-                JOptionPane.ERROR_MESSAGE);
+            showError("Password must be at least 6 characters!");
+            txtPassword.requestFocus();
             return;
         }
         
-
-        if (selectedRole.equals("admin")) {
-            String adminCode = JOptionPane.showInputDialog(this,
-                "Enter admin registration code:",
-                "Admin Verification",
-                JOptionPane.QUESTION_MESSAGE);
-            
-            if (adminCode == null || !adminCode.equals("ADMIN123")) { // Default code
-                JOptionPane.showMessageDialog(this,
-                    "Invalid admin code! Registration as user instead.",
-                    "Admin Code Error",
-                    JOptionPane.WARNING_MESSAGE);
-                selectedRole = "user";
-                selectedRole_User.setSelected(true);
-            }
+        if (confirm.isEmpty()) {
+            showError("Please confirm password!");
+            txtConfirm.requestFocus();
+            return;
         }
         
-
-        User newUser = new User();
-        newUser.setUsername(username);
-        newUser.setPassword(password); // Will be hashed in DAO
-        newUser.setEmail(email);
-        newUser.setRole(selectedRole);
+        if (!password.equals(confirm)) {
+            showError("Passwords do not match!");
+            txtConfirm.setText("");
+            txtPassword.setText("");
+            txtPassword.requestFocus();
+            return;
+        }
         
-        // Save to database
-        UserDAO userDAO = new UserDAO();
-        
-
-        if (userDAO.usernameExists(username)) {
-            JOptionPane.showMessageDialog(this,
-                "Username already exists! Please choose another.",
-                "Registration Failed",
-                JOptionPane.ERROR_MESSAGE);
+        // Check if username already exists
+        if (userDAO.isUsernameExists(username)) {
+            showError("Username already exists! Please choose another.");
+            txtUsername.requestFocus();
             return;
         }
         
         // Check if email already exists
-        if (userDAO.emailExists(email)) {
-            JOptionPane.showMessageDialog(this,
-                "Email already registered! Please use another email.",
-                "Registration Failed",
-                JOptionPane.ERROR_MESSAGE);
+        if (userDAO.isEmailExists(email)) {
+            showError("Email already registered! Please use another email.");
+            txtEmail.requestFocus();
             return;
         }
         
-     
-        boolean success = userDAO.register(newUser);
+        // Special validation for Admin registration
+        if (role.equals("admin")) {
+            if (adminCode.isEmpty()) {
+                showError("Admin Code is required for admin registration!");
+                txtAdminCode.requestFocus();
+                return;
+            }
+            
+            // Cek admin code valid (hardcoded atau dari database)
+            if (!isValidAdminCode(adminCode)) {
+                showError("Invalid Admin Code! Contact system administrator.");
+                txtAdminCode.requestFocus();
+                return;
+            }
+        }
+        
+        // Hash password
+        String hashedPassword = hashPassword(password);
+        
+        // Create user object
+        User newUser = new User();
+        newUser.setUsername(username);
+        newUser.setEmail(email);
+        newUser.setPasswordHash(hashedPassword);
+        newUser.setRole(role);
+        
+        // Save to database
+        boolean success = userDAO.register(newUser, password);
         
         if (success) {
             JOptionPane.showMessageDialog(this,
                 "Registration successful!\nYou can now login with your credentials.",
-                "Registration Success",
+                "Success",
                 JOptionPane.INFORMATION_MESSAGE);
             
-            // Go back to login
-            new LoginForm().setVisible(true);
-            dispose();
+            // Redirect to login form
+            openLoginForm();
         } else {
-            JOptionPane.showMessageDialog(this,
-                "Registration failed! Please try again.",
-                "Registration Failed",
-                JOptionPane.ERROR_MESSAGE);
+            showError("Registration failed! Please try again.");
         }
     }
     
-    private void backToLogin() {
-        new LoginForm().setVisible(true);
-        dispose();
+    private boolean isValidAdminCode(String code) {
+        // Hardcoded admin codes (bisa diganti dengan cek database)
+        String[] validCodes = {
+            "ADMIN2024",
+            "SUPERADMIN",
+            "MASTERKEY",
+            "ADMIN123"
+        };
+        
+        for (String validCode : validCodes) {
+            if (validCode.equals(code)) {
+                return true;
+            }
+        }
+        return false;
+        
+        // Atau cek dari database:
+        // return userDAO.isValidAdminCode(code);
     }
     
+    public static String hashPassword(String password) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hashedBytes = md.digest(password.getBytes());
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hashedBytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            System.err.println("Hashing algorithm not available: " + e.getMessage());
+            return password;
+        }
+    }
     
+    private void openLoginForm() {
+        LoginForm loginForm = new LoginForm();
+        loginForm.setVisible(true);
+        this.dispose();
+    }
     
+    private void showError(String message) {
+        JOptionPane.showMessageDialog(this, 
+            message, 
+            "Error", 
+            JOptionPane.ERROR_MESSAGE);
+    }
+    
+    private boolean isValidUsername(String username) {
+        return username.matches("^[a-zA-Z0-9_]{3,20}$");
+    }
+    
+    private boolean isValidEmail(String email) {
+        return email.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    }
+    
+    private void clearAllFields() {
+        txtUsername.setText("");
+        txtEmail.setText("");
+        txtPassword.setText("");
+        txtConfirm.setText("");
+        txtAdminCode.setText("");
+        selectedRole_User.setSelected(true);
+        toggleAdminCodeField(false);
+        txtUsername.requestFocus();
+    }
+    
+    private void validateUsernameOnType() {
+        String username = txtUsername.getText().trim();
+        if (!username.isEmpty() && !isValidUsername(username)) {
+            txtUsername.setToolTipText("Username must be 3-20 characters (letters, numbers, underscore)");
+        } else {
+            txtUsername.setToolTipText(null);
+        }
+    }
+    
+    private void validateEmailOnType() {
+        String email = txtEmail.getText().trim();
+        if (!email.isEmpty() && !isValidEmail(email)) {
+            txtEmail.setToolTipText("Enter a valid email address");
+        } else {
+            txtEmail.setToolTipText(null);
+        }
+    }
+    
+    private void validatePasswordStrength() {
+        String password = new String(txtPassword.getPassword());
+        if (password.length() > 0 && password.length() < 6) {
+            txtPassword.setToolTipText("Password too short (minimum 6 characters)");
+        } else {
+            txtPassword.setToolTipText(null);
+        }
+    }
+    
+    private void validatePasswordConfirmation() {
+        String password = new String(txtPassword.getPassword());
+        String confirm = new String(txtConfirm.getPassword());
+        
+        if (!confirm.isEmpty() && !password.equals(confirm)) {
+            txtConfirm.setToolTipText("Passwords do not match!");
+        } else {
+            txtConfirm.setToolTipText(null);
+        }
+    }
     
     /**
      * This method is called from within the constructor to initialize the form.
@@ -141,6 +325,8 @@ public class RegisterForm extends javax.swing.JFrame {
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
 
+        buttonGroup1 = new javax.swing.ButtonGroup();
+        buttonGroup2 = new javax.swing.ButtonGroup();
         jLabel1 = new javax.swing.JLabel();
         jLabel2 = new javax.swing.JLabel();
         jLabel3 = new javax.swing.JLabel();
@@ -155,6 +341,8 @@ public class RegisterForm extends javax.swing.JFrame {
         txtEmail = new javax.swing.JTextField();
         txtPassword = new javax.swing.JPasswordField();
         txtConfirm = new javax.swing.JPasswordField();
+        jLabel7 = new javax.swing.JLabel();
+        txtAdminCode = new javax.swing.JTextField();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
 
@@ -184,6 +372,7 @@ public class RegisterForm extends javax.swing.JFrame {
             }
         });
 
+        buttonGroup1.add(selectedRole_User);
         selectedRole_User.setText("User");
         selectedRole_User.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
@@ -191,10 +380,33 @@ public class RegisterForm extends javax.swing.JFrame {
             }
         });
 
+        buttonGroup1.add(selectedRole_Admin);
         selectedRole_Admin.setText("Admin");
         selectedRole_Admin.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 selectedRole_AdminActionPerformed(evt);
+            }
+        });
+
+        txtUsername.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                txtUsernameActionPerformed(evt);
+            }
+        });
+        txtUsername.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                txtUsernameKeyReleased(evt);
+            }
+        });
+
+        txtEmail.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                txtEmailActionPerformed(evt);
+            }
+        });
+        txtEmail.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                txtEmailKeyReleased(evt);
             }
         });
 
@@ -203,10 +415,31 @@ public class RegisterForm extends javax.swing.JFrame {
                 txtPasswordActionPerformed(evt);
             }
         });
+        txtPassword.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyPressed(java.awt.event.KeyEvent evt) {
+                txtPasswordKeyPressed(evt);
+            }
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                txtPasswordKeyReleased(evt);
+            }
+        });
 
         txtConfirm.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 txtConfirmActionPerformed(evt);
+            }
+        });
+        txtConfirm.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                txtConfirmKeyReleased(evt);
+            }
+        });
+
+        jLabel7.setText("Admin Code");
+
+        txtAdminCode.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                txtAdminCodeActionPerformed(evt);
             }
         });
 
@@ -224,31 +457,33 @@ public class RegisterForm extends javax.swing.JFrame {
                             .addComponent(jLabel4)
                             .addComponent(jLabel5)
                             .addGroup(layout.createSequentialGroup()
-                                .addComponent(jLabel6)
+                                .addGap(65, 65, 65)
+                                .addComponent(btn_register)
+                                .addGap(58, 58, 58)
+                                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                                    .addComponent(btn_bck_login)
+                                    .addComponent(selectedRole_Admin)))
+                            .addGroup(layout.createSequentialGroup()
+                                .addGap(14, 14, 14)
                                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                                     .addGroup(layout.createSequentialGroup()
-                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                                            .addGroup(layout.createSequentialGroup()
-                                                .addGap(63, 63, 63)
-                                                .addComponent(selectedRole_User))
-                                            .addGroup(layout.createSequentialGroup()
-                                                .addGap(42, 42, 42)
-                                                .addComponent(btn_register)))
-                                        .addGap(58, 58, 58)
-                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                                            .addComponent(btn_bck_login)
-                                            .addComponent(selectedRole_Admin)))
+                                        .addComponent(jLabel7)
+                                        .addGap(18, 18, 18)
+                                        .addComponent(txtAdminCode, javax.swing.GroupLayout.PREFERRED_SIZE, 176, javax.swing.GroupLayout.PREFERRED_SIZE))
                                     .addGroup(layout.createSequentialGroup()
-                                        .addGap(63, 63, 63)
-                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
-                                            .addComponent(txtConfirm, javax.swing.GroupLayout.DEFAULT_SIZE, 208, Short.MAX_VALUE)
-                                            .addComponent(txtPassword, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, 208, Short.MAX_VALUE)
-                                            .addComponent(txtEmail, javax.swing.GroupLayout.Alignment.LEADING)
-                                            .addComponent(txtUsername, javax.swing.GroupLayout.Alignment.LEADING)))))))
+                                        .addComponent(jLabel6)
+                                        .addGap(49, 49, 49)
+                                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                                            .addComponent(selectedRole_User)
+                                            .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
+                                                .addComponent(txtConfirm, javax.swing.GroupLayout.DEFAULT_SIZE, 208, Short.MAX_VALUE)
+                                                .addComponent(txtPassword, javax.swing.GroupLayout.Alignment.LEADING, javax.swing.GroupLayout.DEFAULT_SIZE, 208, Short.MAX_VALUE)
+                                                .addComponent(txtEmail, javax.swing.GroupLayout.Alignment.LEADING)
+                                                .addComponent(txtUsername, javax.swing.GroupLayout.Alignment.LEADING))))))))
                     .addGroup(layout.createSequentialGroup()
                         .addGap(137, 137, 137)
                         .addComponent(jLabel1)))
-                .addContainerGap(101, Short.MAX_VALUE))
+                .addContainerGap(106, Short.MAX_VALUE))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
@@ -271,12 +506,16 @@ public class RegisterForm extends javax.swing.JFrame {
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(jLabel5)
                     .addComponent(txtConfirm, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                .addGap(25, 25, 25)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                    .addComponent(selectedRole_User)
                     .addComponent(jLabel6)
+                    .addComponent(selectedRole_User)
                     .addComponent(selectedRole_Admin))
-                .addGap(29, 29, 29)
+                .addGap(24, 24, 24)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                    .addComponent(jLabel7)
+                    .addComponent(txtAdminCode, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, 37, Short.MAX_VALUE)
                 .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
                     .addComponent(btn_register)
                     .addComponent(btn_bck_login))
@@ -293,18 +532,17 @@ public class RegisterForm extends javax.swing.JFrame {
 
     private void btn_bck_loginActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_btn_bck_loginActionPerformed
         // TODO add your handling code here:
-        backToLogin();
+        openLoginForm();
     }//GEN-LAST:event_btn_bck_loginActionPerformed
 
     private void selectedRole_UserActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_selectedRole_UserActionPerformed
         // TODO add your handling code here:
-        selectedRole = "user";
-        
+        toggleAdminCodeField(false);
     }//GEN-LAST:event_selectedRole_UserActionPerformed
 
     private void selectedRole_AdminActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_selectedRole_AdminActionPerformed
         // TODO add your handling code here:
-        selectedRole = "admin";
+        toggleAdminCodeField(true);
     }//GEN-LAST:event_selectedRole_AdminActionPerformed
 
     private void txtConfirmActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtConfirmActionPerformed
@@ -314,8 +552,48 @@ public class RegisterForm extends javax.swing.JFrame {
 
     private void txtPasswordActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtPasswordActionPerformed
         // TODO add your handling code here:
-        txtConfirm.requestFocus();
+         txtConfirm.requestFocus();
     }//GEN-LAST:event_txtPasswordActionPerformed
+
+    private void txtEmailActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtEmailActionPerformed
+        // TODO add your handling code here:
+        txtPassword.requestFocus();
+    }//GEN-LAST:event_txtEmailActionPerformed
+
+    private void txtUsernameActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtUsernameActionPerformed
+        // TODO add your handling code here:
+         txtEmail.requestFocus();
+    }//GEN-LAST:event_txtUsernameActionPerformed
+
+    private void txtConfirmKeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtConfirmKeyReleased
+        // TODO add your handling code here:
+        validatePasswordConfirmation();
+    }//GEN-LAST:event_txtConfirmKeyReleased
+
+    private void txtEmailKeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtEmailKeyReleased
+        // TODO add your handling code here:
+        validateEmailOnType();
+    }//GEN-LAST:event_txtEmailKeyReleased
+
+    private void txtUsernameKeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtUsernameKeyReleased
+        // TODO add your handling code here:
+        validateUsernameOnType();
+    }//GEN-LAST:event_txtUsernameKeyReleased
+
+    private void txtAdminCodeActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_txtAdminCodeActionPerformed
+        // TODO add your handling code here:
+        registerUser();
+    }//GEN-LAST:event_txtAdminCodeActionPerformed
+
+    private void txtPasswordKeyPressed(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtPasswordKeyPressed
+        // TODO add your handling code here:
+
+    }//GEN-LAST:event_txtPasswordKeyPressed
+
+    private void txtPasswordKeyReleased(java.awt.event.KeyEvent evt) {//GEN-FIRST:event_txtPasswordKeyReleased
+        // TODO add your handling code here:
+         validatePasswordStrength();
+    }//GEN-LAST:event_txtPasswordKeyReleased
 
     /**
      * @param args the command line arguments
@@ -355,14 +633,18 @@ public class RegisterForm extends javax.swing.JFrame {
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton btn_bck_login;
     private javax.swing.JButton btn_register;
+    private javax.swing.ButtonGroup buttonGroup1;
+    private javax.swing.ButtonGroup buttonGroup2;
     private javax.swing.JLabel jLabel1;
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
     private javax.swing.JLabel jLabel4;
     private javax.swing.JLabel jLabel5;
     private javax.swing.JLabel jLabel6;
+    private javax.swing.JLabel jLabel7;
     private javax.swing.JRadioButton selectedRole_Admin;
     private javax.swing.JRadioButton selectedRole_User;
+    private javax.swing.JTextField txtAdminCode;
     private javax.swing.JPasswordField txtConfirm;
     private javax.swing.JTextField txtEmail;
     private javax.swing.JPasswordField txtPassword;
